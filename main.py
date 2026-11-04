@@ -6,13 +6,22 @@ import seaborn as sns
 from io import StringIO
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
 
-st.title("🏙️ 경기도 시군별 인구 구조 기반 세대당 인구수 예측 모델")
-st.write("공공데이터포털(KOSIS) 데이터를 바탕으로, 시군별 세대수 및 성비에 따른 **1세대당 거주 인구수**를 예측하고 시각화하는 스트림릿 웹 앱입니다.")
+# 스트림릿 페이지 기본 설정 (넓은 화면 레이아웃)
+st.set_page_config(
+    page_title="Gyeonggi Population Dashboard",
+    page_icon="🏙️",
+    layout="wide"
+)
+
+# 폰트 스타일 및 제목
+st.title("🏙️ 경기도 시군별 인구 및 세대 구조 분석 대시보드")
+st.caption("Data Science Project: Machine Learning Model for Household Size Prediction")
+st.markdown("---")
 
 # ==========================================
-# 1. 내장된 CSV 데이터 로드 및 전처리
+# 1. 데이터 로드 및 전처리
 # ==========================================
 @st.cache_data
 def load_and_preprocess_data():
@@ -57,81 +66,158 @@ def load_and_preprocess_data():
         'Total_Population': pd.to_numeric(df.iloc[:, 2], errors='coerce'),
         'Male_Population': pd.to_numeric(df.iloc[:, 3], errors='coerce'),
         'Female_Population': pd.to_numeric(df.iloc[:, 4], errors='coerce'),
-        'Total_Households': pd.to_numeric(df.iloc[:, 5], errors='coerce')
+        'Total_Households': pd.to_numeric(df.iloc[:, 5], errors='coerce'),
+        'Foreigners': pd.to_numeric(df.iloc[:, 9], errors='coerce')
     }).dropna()
 
     df_clean['Persons_Per_Household'] = df_clean['Total_Population'] / df_clean['Total_Households']
     df_clean['Sex_Ratio'] = df_clean['Male_Population'] / df_clean['Female_Population']
+    df_clean['Foreigner_Ratio'] = (df_clean['Foreigners'] / df_clean['Total_Population']) * 100
 
     return df_clean
 
 df = load_and_preprocess_data()
 
-with st.expander("📊 정제된 시군별 인구 데이터 미리보기"):
-    st.dataframe(df)
+# ==========================================
+# 2. 상단 요약 카드 (KPI Metrics)
+# ==========================================
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("분석 대상 시군 수", f"{len(df)}개 지역")
+m2.metric("경기도 총인구수", f"{df['Total_Population'].sum():,}명")
+m3.metric("평균 세대당 인구수", f"{df['Persons_Per_Household'].mean():.2f}명")
+m4.metric("최고 세대당 인구 지역", f"{df.loc[df['Persons_Per_Household'].idxmax(), 'Region']} ({df['Persons_Per_Household'].max():.2f}명)")
+
+st.markdown("---")
 
 # ==========================================
-# 2. 탐색적 데이터 분석 (EDA)
+# 3. 탭(Tab) 구성을 통한 알찬 화면 배치
 # ==========================================
-st.header("1. 탐색적 데이터 분석 (EDA)")
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 1. 데이터 탐색 & 시각화", 
+    "🤖 2. 머신러닝 예측 모델", 
+    "🎛️ 3. 실시간 예측 시뮬레이터",
+    "📋 4. 데이터 원본 확인"
+])
 
-col1, col2 = st.columns(2)
+# ------------------------------------------
+# TAB 1: 데이터 탐색
+# ------------------------------------------
+with tab1:
+    st.subheader("경기도 주요 시군구 인구 구조 분석")
+    
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.markdown("**1세대당 거주 인구수 상위/하위 5개 지역**")
+        top_bottom = pd.concat([
+            df.sort_values(by='Persons_Per_Household', ascending=False).head(5),
+            df.sort_values(by='Persons_Per_Household', ascending=True).head(5)
+        ])
+        
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        colors = ['#1f77b4' if x > df['Persons_Per_Household'].mean() else '#ff7f0e' for x in top_bottom['Persons_Per_Household']]
+        sns.barplot(data=top_bottom, x='Persons_Per_Household', y='Region', palette=colors, ax=ax)
+        ax.axvline(df['Persons_Per_Household'].mean(), color='red', linestyle='--', label=f"Avg: {df['Persons_Per_Household'].mean():.2f}")
+        ax.set_xlabel("Persons Per Household")
+        ax.legend()
+        st.pyplot(fig)
+        
+    with c2:
+        st.markdown("**변수간 상관관계 (Correlation Heatmap)**")
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        corr_data = df[['Total_Population', 'Total_Households', 'Sex_Ratio', 'Foreigner_Ratio', 'Persons_Per_Household']]
+        sns.heatmap(corr_data.corr(), annot=True, cmap='Blues', fmt=".2f", ax=ax, linewidths=0.5)
+        st.pyplot(fig)
 
-with col1:
-    st.subheader("총 세대수 vs 세대당 인구수")
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.scatterplot(data=df, x='Total_Households', y='Persons_Per_Household', ax=ax, color='indigo', s=70)
+    st.markdown("---")
+    st.markdown("**총 세대수와 세대당 인구수의 분포 (Scatter Plot)**")
+    fig, ax = plt.subplots(figsize=(10, 3.5))
+    sns.scatterplot(data=df, x='Total_Households', y='Persons_Per_Household', hue='Sex_Ratio', size='Total_Population', sizes=(50, 400), palette='viridis', ax=ax)
     ax.set_xlabel("Total Households")
     ax.set_ylabel("Persons Per Household")
     st.pyplot(fig)
 
-with col2:
-    st.subheader("변수 간 상관관계 히트맵")
-    fig, ax = plt.subplots(figsize=(6, 4))
-    numeric_df = df[['Total_Population', 'Total_Households', 'Sex_Ratio', 'Persons_Per_Household']]
-    sns.heatmap(numeric_df.corr(), annot=True, cmap='Blues', fmt=".2f", ax=ax)
+# ------------------------------------------
+# TAB 2: 머신러닝 모델
+# ------------------------------------------
+with tab2:
+    st.subheader("Random Forest Regressor 모델 성능 평가")
+    
+    features = ['Total_Households', 'Sex_Ratio', 'Total_Population', 'Foreigner_Ratio']
+    target = 'Persons_Per_Household'
+
+    X = df[features]
+    y = df[target]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m1.metric("결정계수 ($R^2$ Score)", f"{r2:.4f}", help="1에 가까울수록 설명력이 높은 우수한 모델입니다.")
+    col_m2.metric("평균 절대 오차 (MAE)", f"{mae:.4f}명", help="실제 값과 예측 값의 평균 차이입니다.")
+    col_m3.metric("평균 제곱근 오차 (RMSE)", f"{rmse:.4f}명")
+
+    st.markdown("---")
+    
+    # Feature Importance (변수 중요도)
+    st.markdown("**독립변수 주요 영향도 (Feature Importance)**")
+    importance_df = pd.DataFrame({
+        'Feature': features,
+        'Importance': model.feature_importances_
+    }).sort_values(by='Importance', ascending=False)
+
+    fig, ax = plt.subplots(figsize=(8, 3))
+    sns.barplot(data=importance_df, x='Importance', y='Feature', palette='crest', ax=ax)
     st.pyplot(fig)
 
-# ==========================================
-# 3. 머신러닝 모델 학습
-# ==========================================
-st.header("2. 머신러닝 예측 모델 (Random Forest)")
+# ------------------------------------------
+# TAB 3: 실시간 시뮬레이터
+# ------------------------------------------
+with tab3:
+    st.subheader("🎛️ 지역별 조건 설정 및 실시간 예측")
+    st.write("사이드바 또는 아래 슬라이더를 조절하여 인구 조건을 설정하면 모델이 **세대당 평균 인구수**를 실시간으로 계산합니다.")
 
-features = ['Total_Households', 'Sex_Ratio', 'Total_Population']
-target = 'Persons_Per_Household'
+    s_col1, s_col2 = st.columns(2)
+    
+    with s_col1:
+        in_pop = st.number_input("총 인구수 (명)", min_value=10000, max_value=1500000, value=500000, step=10000)
+        in_house = st.number_input("총 세대수 (세대)", min_value=5000, max_value=700000, value=200000, step=5000)
+    
+    with s_col2:
+        in_sex = st.slider("성비 (남성/여성)", min_value=0.80, max_value=1.30, value=1.01, step=0.01)
+        in_for = st.slider("외국인 비율 (%)", min_value=0.0, max_value=10.0, value=2.5, step=0.1)
 
-X = df[features]
-y = df[target]
+    input_data = pd.DataFrame({
+        'Total_Households': [in_house],
+        'Sex_Ratio': [in_sex],
+        'Total_Population': [in_pop],
+        'Foreigner_Ratio': [in_for]
+    })
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    pred_res = model.predict(input_data)[0]
 
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+    st.markdown("---")
+    st.success(f"🎉 **예측 분석 결과:** 해당 인구 구조 조건을 가진 지역의 1세대당 거주 인구수는 **약 {pred_res:.2f}명**으로 예상됩니다.")
 
-y_pred = model.predict(X_test)
-mae = mean_absolute_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
-
-m1, m2 = st.columns(2)
-m1.metric("결정계수 ($R^2$ Score)", f"{r2:.4f}")
-m2.metric("평균 절대 오차 (MAE)", f"{mae:.4f}")
-
-# ==========================================
-# 4. 실시간 시뮬레이션
-# ==========================================
-st.header("3. 시군구 가구 구조 예측 시뮬레이터")
-
-st.sidebar.header("🔍 지역 인구 조건 설정")
-input_pop = st.sidebar.number_input("총 인구수 (명)", min_value=10000, max_value=1500000, value=500000, step=10000)
-input_households = st.sidebar.number_input("총 세대수 (세대)", min_value=5000, max_value=700000, value=200000, step=5000)
-input_sex_ratio = st.sidebar.slider("성비 (남성인구 / 여성인구)", min_value=0.80, max_value=1.30, value=1.01, step=0.01)
-
-input_data = pd.DataFrame({
-    'Total_Households': [input_households],
-    'Sex_Ratio': [input_sex_ratio],
-    'Total_Population': [input_pop]
-})
-
-predicted_val = model.predict(input_data)[0]
-
-st.success(f"💡 **예측 결과:** 해당 조건 시군의 **1세대당 평균 거주 인구수**는 약 **{predicted_val:.2f}명**으로 추정됩니다.")
+# ------------------------------------------
+# TAB 4: 원본 데이터
+# ------------------------------------------
+with tab4:
+    st.subheader("수집 및 정제된 원본 데이터셋")
+    st.dataframe(df, use_container_width=True)
+    
+    # CSV 다운로드 버튼 추가
+    csv_bytes = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 정제된 CSV 데이터 다운로드",
+        data=csv_bytes,
+        file_name="Gyeonggi_Population_Processed.csv",
+        mime="text/csv"
+    )
