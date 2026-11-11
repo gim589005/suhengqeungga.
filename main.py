@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from io import StringIO
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
 
 # 스트림릿 페이지 기본 설정 (넓은 화면 레이아웃)
@@ -15,9 +15,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# 폰트 스타일 및 제목
 st.title("🏙️ 경기도 시군별 인구 및 세대 구조 분석 대시보드")
-st.caption("Data Science Project: Machine Learning Model for Household Size Prediction")
+st.caption("Data Science Project: Linear Regression Model for Household Size Prediction")
 st.markdown("---")
 
 # ==========================================
@@ -90,11 +89,11 @@ m4.metric("최고 세대당 인구 지역", f"{df.loc[df['Persons_Per_Household'
 st.markdown("---")
 
 # ==========================================
-# 3. 탭(Tab) 구성을 통한 알찬 화면 배치
+# 3. 탭(Tab) 구성
 # ==========================================
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 1. 데이터 탐색 & 시각화", 
-    "🤖 2. 머신러닝 예측 모델", 
+    "🤖 2. 선형 회귀 모델 학습", 
     "🎛️ 3. 실시간 예측 시뮬레이터",
     "📋 4. 데이터 원본 확인"
 ])
@@ -138,10 +137,11 @@ with tab1:
     st.pyplot(fig)
 
 # ------------------------------------------
-# TAB 2: 머신러닝 모델
+# TAB 2: 선형 회귀 모델 (Linear Regression)
 # ------------------------------------------
 with tab2:
-    st.subheader("Random Forest Regressor 모델 성능 평가")
+    st.subheader("선형 회귀 (Linear Regression) 모델 성능 평가")
+    st.write("독립변수들과 종속변수 간의 **선형 관계(일직선 방정식)**를 학습하여 인구수와 세대수에 따른 세대당 인구수를 예측합니다.")
     
     features = ['Total_Households', 'Sex_Ratio', 'Total_Population', 'Foreigner_Ratio']
     target = 'Persons_Per_Household'
@@ -151,7 +151,7 @@ with tab2:
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model = LinearRegression()
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
@@ -160,29 +160,29 @@ with tab2:
     r2 = r2_score(y_test, y_pred)
 
     col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("결정계수 ($R^2$ Score)", f"{r2:.4f}", help="1에 가까울수록 설명력이 높은 우수한 모델입니다.")
-    col_m2.metric("평균 절대 오차 (MAE)", f"{mae:.4f}명", help="실제 값과 예측 값의 평균 차이입니다.")
+    col_m1.metric("결정계수 ($R^2$ Score)", f"{r2:.4f}", help="1에 가까울수록 선형 모델의 설명력이 높습니다.")
+    col_m2.metric("평균 절대 오차 (MAE)", f"{mae:.4f}명")
     col_m3.metric("평균 제곱근 오차 (RMSE)", f"{rmse:.4f}명")
 
     st.markdown("---")
     
-    # Feature Importance (변수 중요도)
-    st.markdown("**독립변수 주요 영향도 (Feature Importance)**")
-    importance_df = pd.DataFrame({
+    st.markdown("**선형 회귀 모델의 가중치 (Coefficients / 각 변수의 영향력)**")
+    coef_df = pd.DataFrame({
         'Feature': features,
-        'Importance': model.feature_importances_
-    }).sort_values(by='Importance', ascending=False)
-
+        'Coefficient': model.coef_
+    })
+    
     fig, ax = plt.subplots(figsize=(8, 3))
-    sns.barplot(data=importance_df, x='Importance', y='Feature', palette='crest', ax=ax)
+    sns.barplot(data=coef_df, x='Coefficient', y='Feature', palette='coolwarm', ax=ax)
+    ax.set_xlabel("Coefficient Value")
     st.pyplot(fig)
 
 # ------------------------------------------
-# TAB 3: 실시간 시뮬레이터
+# TAB 3: 실시간 시뮬레이터 + 실제 지역 비교 기능 추가!
 # ------------------------------------------
 with tab3:
-    st.subheader("🎛️ 지역별 조건 설정 및 실시간 예측")
-    st.write("사이드바 또는 아래 슬라이더를 조절하여 인구 조건을 설정하면 모델이 **세대당 평균 인구수**를 실시간으로 계산합니다.")
+    st.subheader("🎛️ 지역별 조건 설정 및 실시간 예측 (선형 회귀)")
+    st.write("아래 슬라이더와 입력창을 조절하면 학습된 **선형 회귀 방정식**에 따라 세대당 평균 인구수가 실시간으로 계산됩니다.")
 
     s_col1, s_col2 = st.columns(2)
     
@@ -206,6 +206,28 @@ with tab3:
     st.markdown("---")
     st.success(f"🎉 **예측 분석 결과:** 해당 인구 구조 조건을 가진 지역의 1세대당 거주 인구수는 **약 {pred_res:.2f}명**으로 예상됩니다.")
 
+    # [추가된 기능] 실제 시군별 데이터와 모델 예측값 비교 섹션
+    st.markdown("---")
+    st.subheader("📍 경기도 실제 시군별 데이터와 모델 예측값 비교")
+    st.write("실제 경기도 시군구 데이터를 선택하여, 우리 모델이 예측한 값과 실제 값이 얼마나 일치하는지 비교해 보세요.")
+    
+    selected_region = st.selectbox("비교할 지역을 선택하세요", df['Region'].values)
+    region_data = df[df['Region'] == selected_region].iloc[0]
+    
+    actual_val = region_data['Persons_Per_Household']
+    pred_input = pd.DataFrame({
+        'Total_Households': [region_data['Total_Households']],
+        'Sex_Ratio': [region_data['Sex_Ratio']],
+        'Total_Population': [region_data['Total_Population']],
+        'Foreigner_Ratio': [region_data['Foreigner_Ratio']]
+    })
+    model_pred = model.predict(pred_input)[0]
+    
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("선택 지역", selected_region)
+    col_b.metric("실제 세대당 인구수", f"{actual_val:.2f}명")
+    col_c.metric("모델 예측값", f"{model_pred:.2f}명", delta=f"{model_pred - actual_val:.2f}명 (오차)")
+
 # ------------------------------------------
 # TAB 4: 원본 데이터
 # ------------------------------------------
@@ -213,7 +235,6 @@ with tab4:
     st.subheader("수집 및 정제된 원본 데이터셋")
     st.dataframe(df, use_container_width=True)
     
-    # CSV 다운로드 버튼 추가
     csv_bytes = df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 정제된 CSV 데이터 다운로드",
